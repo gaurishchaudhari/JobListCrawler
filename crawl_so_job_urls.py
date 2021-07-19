@@ -13,14 +13,15 @@ import re
 # pip3 install lxml
 # pip3 install bs4
 
+DATA_DIR = './output'
+JOBS_DATA_DIR = './output/jobs'
 
 # ======================================
 # Get all job urls from stack overflow
 # ======================================
 def so_crawl_all_job_urls():
 
-    data_dir = './output'
-    output_file = os.path.join(data_dir, 'job_urls.txt')
+    output_file = os.path.join(DATA_DIR, 'job_urls.txt')
     num_urls_detected = 0
 
     base_url = 'https://stackoverflow.com/jobs?pg={}'
@@ -54,94 +55,12 @@ def so_crawl_all_job_urls():
 
 
 # ======================================
-# Crawl job post url and parse required fields
+# Crawl each job post url
 # ======================================
-
-def so_parse_all_job_posting():
-    data_dir = './output'
-    job_posts_dir = './output/jobs'
-
-    parsed_jobs = []
-    for file in os.listdir(job_posts_dir):
-        file_path = os.path.join(job_posts_dir, file)
-        with open(file_path, 'r', encoding='utf-8') as fin:
-            content = fin.read()
-            jobj = json.loads(content)
-
-            title = ""
-            if 'title' in jobj:
-                title = jobj['title']
-
-            company = ""
-            if 'hiringOrganization' in jobj and 'name' in jobj['hiringOrganization']:
-                company = jobj['hiringOrganization']['name']
-
-            location = ""
-            if 'jobLocation' in jobj and len(jobj['jobLocation']) > 0:
-                location_parts = []
-                if 'address' in jobj['jobLocation'][0]:
-                    address = jobj['jobLocation'][0]['address']
-
-                    if 'addressLocality' in address:
-                        locality = address['addressLocality']
-                        location_parts.append(locality)
-                    elif 'addressRegion' in address:
-                        region = address['addressRegion']
-                        location_parts.append(region)
-
-                    if 'addressCountry' in address:
-                        country = address['addressCountry']
-                        location_parts.append(country)
-
-                location = ", ".join(location_parts)
-
-            skills = ""
-            if 'skills' in jobj:
-                skills = ', '.join(jobj['skills'])
-
-            description = ""
-            if 'description' in jobj:
-                desc_bs = BeautifulSoup(jobj['description'], "lxml")
-                # get fill desc
-                description = ' '.join([p.replace('\n', ' ').replace('\r', '') for p in desc_bs.find_all(text=True)])
-
-            parsed_jobs.append({
-                'Title': title,
-                'Company': company,
-                'Location': location,
-                'Skills': skills,
-                'Description': description
-            })
-
-    print("Number of parsed jobs: {}".format(len(parsed_jobs)))
-
-    output_file = os.path.join(data_dir, 'JobPostings.tsv')
-    with open(output_file, 'w', encoding='utf-8') as fout:
-        # header
-        fout.write("{}\n".format("\t".join([
-            "Title",
-            "Company",
-            "Location",
-            "Skills",
-            "Description",
-        ])))
-        # data
-        for jobj in parsed_jobs:
-            fout.write("{}\n".format("\t".join([
-                jobj["Title"],
-                jobj["Company"],
-                jobj["Location"],
-                jobj["Skills"],
-                jobj["Description"],
-            ])))
-
-    print("Output written to {}".format(output_file))
-
 
 def so_crawl_all_job_postings():
 
-    data_dir = './output'
-    job_urls_file = os.path.join(data_dir, 'job_urls.txt')
+    job_urls_file = os.path.join(DATA_DIR, 'job_urls.txt')
 
     counter = 0
     with open(job_urls_file, 'r', encoding='utf-8') as fin:
@@ -154,7 +73,7 @@ def so_crawl_all_job_postings():
             match = re.search(r"https://stackoverflow.com/jobs/([0-9]+)/", job_url)
             if match is not None:
                 job_id = match.group(1)
-                output_file = os.path.join(data_dir, "jobs", "{}.txt".format(job_id))
+                output_file = os.path.join(JOBS_DATA_DIR, "{}.txt".format(job_id))
                 if os.path.exists(output_file):
                     print("Job is already crawled. Continue ...")
                     continue
@@ -168,8 +87,106 @@ def so_crawl_all_job_postings():
 
             time.sleep(3)  # sleep for 3 sec to avoid throttling
 
-    counter -= 1
     print("Number of job posts crawled: {}".format(counter))
+
+
+# ======================================
+# Parse job post and detect required fields
+# ======================================
+
+def so_parse_all_job_posting():
+
+    parsed_jobs = []
+    for file in os.listdir(JOBS_DATA_DIR):
+        if not file.endswith('.txt'):
+            continue
+        file_path = os.path.join(JOBS_DATA_DIR, file)
+        print("Parsing file: {}".format(file))
+        with open(file_path, 'r', encoding='utf-8') as fin:
+            try:
+                content = fin.read()
+                jobj = json.loads(content)
+
+                job_id = file.split('.')[0]
+
+                title = ""
+                if 'title' in jobj:
+                    title = jobj['title']
+
+                company = ""
+                if 'hiringOrganization' in jobj and 'name' in jobj['hiringOrganization']:
+                    company = jobj['hiringOrganization']['name']
+
+                location = ""
+                if 'jobLocation' in jobj and len(jobj['jobLocation']) > 0:
+                    location_parts = []
+                    if 'address' in jobj['jobLocation'][0]:
+                        address = jobj['jobLocation'][0]['address']
+
+                        if 'addressLocality' in address:
+                            locality = address['addressLocality']
+                            location_parts.append(locality)
+                        elif 'addressRegion' in address:
+                            region = address['addressRegion']
+                            location_parts.append(region)
+
+                        if 'addressCountry' in address:
+                            country = address['addressCountry']
+                            location_parts.append(country)
+
+                    location = ", ".join(location_parts)
+
+                skills = ""
+                if 'skills' in jobj:
+                    skills = ', '.join(jobj['skills'])
+
+                description = ""
+                if 'description' in jobj:
+                    desc_bs = BeautifulSoup(jobj['description'], "lxml")
+                    # get fill desc
+                    description = ' '.join(
+                        [p.replace('\n', ' ').replace('\r', '') for p in desc_bs.find_all(text=True)])
+
+                parsed_jobs.append({
+                    'JobId': job_id,
+                    'Title': title,
+                    'Company': company,
+                    'Location': location,
+                    'Skills': skills,
+                    'Description': description
+                })
+
+            except Exception as ex:
+                print("Error parsing. {}".format(file))
+                print(ex)
+                raise  ex
+
+
+    print("Number of parsed jobs: {}".format(len(parsed_jobs)))
+
+    output_file = os.path.join(DATA_DIR, 'JobPostings.tsv')
+    with open(output_file, 'w', encoding='utf-8') as fout:
+        # header
+        fout.write("{}\n".format("\t".join([
+            "JobId",
+            "Title",
+            "Company",
+            "Location",
+            "Skills",
+            "Description",
+        ])))
+        # data
+        for jobj in parsed_jobs:
+            fout.write("{}\n".format("\t".join([
+                jobj["JobId"],
+                jobj["Title"],
+                jobj["Company"],
+                jobj["Location"],
+                jobj["Skills"],
+                jobj["Description"],
+            ])))
+
+    print("Output written to {}".format(output_file))
 
 
 # ======================================
@@ -178,7 +195,14 @@ def so_crawl_all_job_postings():
 def main():
     print("Start")
 
-    mode = "2"
+    if not os.path.exists(DATA_DIR):
+        print("Creating directory: {}".format(DATA_DIR))
+        os.makedirs(DATA_DIR)
+    if not os.path.exists(JOBS_DATA_DIR):
+        print("Creating directory: {}".format(JOBS_DATA_DIR))
+        os.makedirs(JOBS_DATA_DIR)
+
+    mode = "3"  ## SET MODE HERE
 
     if mode == "1":
         so_crawl_all_job_urls()
