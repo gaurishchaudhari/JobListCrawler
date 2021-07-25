@@ -1,5 +1,6 @@
 .DS_Store
 .idea
-output/
-test/
+chromedriver
+output*/
+test*/
 *.zip

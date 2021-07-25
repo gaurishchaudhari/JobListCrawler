@@ -12,9 +12,14 @@ import re
 # pip3 install requests
 # pip3 install lxml
 # pip3 install bs4
+# pip3 install selenium
 
 DATA_DIR = './output'
 JOBS_DATA_DIR = './output/jobs'
+USE_SELENIUM = True
+
+if USE_SELENIUM:
+    from selenium import webdriver
 
 # ======================================
 # Get all job urls from stack overflow
@@ -26,7 +31,7 @@ def so_crawl_all_job_urls():
 
     base_url = 'https://stackoverflow.com/jobs?pg={}'
     page_no = 1
-    page_limit = 3  # Check max pages: 135
+    page_limit = 10  # Check how many max pages and set this value:  e.g. 135
 
     while page_no <= page_limit:
         page_url = base_url.format(page_no)
@@ -64,6 +69,12 @@ def so_crawl_all_job_postings():
 
     counter = 0
     with open(job_urls_file, 'r', encoding='utf-8') as fin:
+
+        driver = None
+        if USE_SELENIUM:
+            driver = webdriver.Chrome('./chromedriver')
+            driver.maximize_window()
+
         for line in fin:
             job_url = line.strip()
             counter += 1
@@ -77,17 +88,85 @@ def so_crawl_all_job_postings():
                 if os.path.exists(output_file):
                     print("Job is already crawled. Continue ...")
                     continue
-                content = requests.get(job_url).text
+
+                if USE_SELENIUM:
+                    driver.get(job_url)
+                    content = driver.page_source
+                else:
+                    content = requests.get(job_url).text
+                time.sleep(3)  # sleep for 3 sec to avoid throttling
+
                 bs = BeautifulSoup(content, "lxml")
+                job_obj = {}
+
+                # get apply url
+                apply_url = ''
+                for link in bs.findAll('a', href=True, class_='_apply'):
+                    apply_url = link['href']
+                    break
+
+                # get job details
                 script_tag = bs.find("script", {"type": "application/ld+json"})
-                job_post_content = script_tag.contents[0]
+                if script_tag is not None:
+                    job_post_content = script_tag.contents[0]
+                    job_obj = json.loads(job_post_content)
+
+                job_obj['apply_url'] = apply_url
+
                 with open(output_file, 'w', encoding='utf-8') as fout:
-                    fout.write(job_post_content)
+                    fout.write(json.dumps(job_obj))
                 print("Written {}".format(output_file))
 
-            time.sleep(3)  # sleep for 3 sec to avoid throttling
+        if driver is not None:
+            driver.quit()
 
     print("Number of job posts crawled: {}".format(counter))
+
+
+def test_crawl_job_post():
+
+    job_url = 'https://stackoverflow.com/jobs/533692/ai-ml-research-scientist-health-ai-apple'
+    test_output_file = './test/job_post_content.txt'
+
+    driver = None
+    if USE_SELENIUM:
+        driver = webdriver.Chrome('./chromedriver')
+        driver.maximize_window()
+
+    match = re.search(r"https://stackoverflow.com/jobs/([0-9]+)/", job_url)
+    if match is not None:
+        job_id = match.group(1)
+        if not os.path.exists(test_output_file):
+            print("Crawling job content")
+            if USE_SELENIUM:
+                driver.get(job_url)
+                content = driver.page_source
+            else:
+                content = requests.get(job_url).text
+            time.sleep(1)
+            with open(test_output_file, 'w', encoding='utf-8') as fout:
+                fout.write(content)
+        else:
+            print("Reading job content")
+            with open(test_output_file, 'r', encoding='utf-8') as fin:
+                content = fin.read()
+
+        bs = BeautifulSoup(content, "lxml")
+        apply_url = ''
+        for link in bs.findAll('a', href=True, class_='_apply'):
+            apply_url = link['href']
+            break
+        script_tag = bs.find("script", {"type": "application/ld+json"})
+        job_post_content = script_tag.contents[0]
+        job_obj = json.loads(job_post_content)
+        job_obj['apply_url'] = apply_url
+
+        print(job_id)
+        print('===')
+        print(job_obj)
+
+    if driver is not None:
+        driver.quit()
 
 
 # ======================================
@@ -136,6 +215,10 @@ def so_parse_all_job_posting():
 
                     location = ", ".join(location_parts)
 
+                apply_url = ""
+                if 'apply_url' in jobj:
+                    apply_url = jobj['apply_url']
+
                 skills = ""
                 if 'skills' in jobj:
                     skills = ', '.join(jobj['skills'])
@@ -152,6 +235,7 @@ def so_parse_all_job_posting():
                     'Title': title,
                     'Company': company,
                     'Location': location,
+                    'ApplyUrl': apply_url,
                     'Skills': skills,
                     'Description': description
                 })
@@ -172,6 +256,7 @@ def so_parse_all_job_posting():
             "Title",
             "Company",
             "Location",
+            "ApplyUrl",
             "Skills",
             "Description",
         ])))
@@ -182,6 +267,7 @@ def so_parse_all_job_posting():
                 jobj["Title"],
                 jobj["Company"],
                 jobj["Location"],
+                jobj["ApplyUrl"],
                 jobj["Skills"],
                 jobj["Description"],
             ])))
@@ -212,6 +298,9 @@ def main():
 
     if mode == "3":
         so_parse_all_job_posting()
+
+    if mode == "TEST":
+        test_crawl_job_post()
 
     print("Done")
 
